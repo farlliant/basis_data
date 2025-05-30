@@ -1,7 +1,7 @@
 from pathlib import Path
 
 DEBUG = True  # Untuk development lokal
-ALLOWED_HOSTS = ['*']  # Mengizinkan semua host, HANYA untuk testing
+#ALLOWED_HOSTS = ['']
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
