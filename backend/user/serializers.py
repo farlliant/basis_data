@@ -14,6 +14,8 @@ class PenggunaSerializer(serializers.ModelSerializer):
         read_only_fields = ['is_active', 'date_joined']
 
     def create(self, validated_data):
+        if Pengguna.objects.filter(email=validated_data['email']).exists():
+            raise serializers.ValidationError('Email already exists')
         password = validated_data.pop('kata_sandi')
         pengguna_instance = Pengguna(**validated_data)
         pengguna_instance.set_password(password) # Hash the password

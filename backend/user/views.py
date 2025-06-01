@@ -7,7 +7,7 @@ from .models import Pengguna
 from .serializers import PenggunaSerializer, LoginSerializer
 
 class PenggunaViewSet(viewsets.ModelViewSet):
-    queryset = Pengguna.objects.all()
+    queryset = Pengguna.objects.all();
     serializer_class = PenggunaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['nama_pengguna', 'email', 'nama_lengkap']
