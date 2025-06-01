@@ -1,12 +1,20 @@
 from pathlib import Path
+import os
 
-DEBUG = True  # Untuk development lokal
-ALLOWED_HOSTS = []
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dummy-secret-key-for-dev")
 
+# === BASE SETTINGS ===
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = "1sv@u@e904=d6b6or&8n&(b2iezg3e($78$4ehcm9xv9s2oz-6";
 
+DEBUG = True  # Aktifkan hanya untuk development
+
+ALLOWED_HOSTS = ['*']  # Kosongkan untuk local dev, tambahkan domain/IP saat di-deploy
+
+ROOT_URLCONF = 'backend.urls'  # Pastikan ini sesuai dengan nama project kamu
+
+# === DATABASE ===
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -14,6 +22,7 @@ DATABASES = {
     }
 }
 
+# === INSTALLED APPS ===
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -29,6 +38,7 @@ INSTALLED_APPS = [
     'user',
 ]
 
+# === MIDDLEWARE ===
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware', 
