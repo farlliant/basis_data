@@ -28,11 +28,11 @@ class LoginView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        nama_pengguna = serializer.validated_data['nama_pengguna']
+        email_pengguna = serializer.validated_data['email_pengguna']
         kata_sandi = serializer.validated_data['kata_sandi']
 
         try:
-            pengguna = Pengguna.objects.get(nama_pengguna=nama_pengguna)
+            pengguna = Pengguna.objects.get(email=email_pengguna)
         except Pengguna.DoesNotExist:
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
