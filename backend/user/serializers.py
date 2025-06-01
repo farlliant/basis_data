@@ -36,5 +36,5 @@ class PenggunaSerializer(serializers.ModelSerializer):
 
 # Serializer for Login
 class LoginSerializer(serializers.Serializer):
-    email_pengguna = serializers.EmailField(required=True)
+    email = serializers.EmailField(required=True)
     kata_sandi = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
