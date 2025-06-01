@@ -1,4 +1,4 @@
 from django.contrib import admin
-from .models import Pengguna
+from .models import User
 
-admin.site.register(Pengguna)
+admin.site.register(User)

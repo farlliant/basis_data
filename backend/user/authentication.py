@@ -1,6 +1,6 @@
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
-from .models import Pengguna
+from .models import User
 import uuid
 
 class SimpleTokenAuthentication(BaseAuthentication):
@@ -25,13 +25,13 @@ class SimpleTokenAuthentication(BaseAuthentication):
         try:
             # Validate if the token_str is a valid UUID before querying
             token_uuid = uuid.UUID(token_str) 
-            pengguna = Pengguna.objects.get(id_pengguna=token_uuid, is_active=True)
+            user = User.objects.get(id=token_uuid, is_active=True)
         except ValueError:
             raise AuthenticationFailed('Invalid Token.')
-        except Pengguna.DoesNotExist:
+        except User.DoesNotExist:
             raise AuthenticationFailed('User doesn\'t exist.')
         
-        return (pengguna, token_uuid) 
+        return (user, token_uuid) 
 
     def authenticate_header(self, request):
         return f'{self.keyword} realm="api"'

@@ -3,14 +3,14 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token # For token generation
-from .models import Pengguna
-from .serializers import PenggunaSerializer, LoginSerializer
+from .models import User
+from .serializers import UserSerializer, LoginSerializer
 
-class PenggunaViewSet(viewsets.ModelViewSet):
-    queryset = Pengguna.objects.all();
-    serializer_class = PenggunaSerializer
+class userViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all();
+    serializer_class = UserSerializer
     filter_backends = [filters.SearchFilter]
-    search_fields = ['nama_pengguna', 'email', 'nama_lengkap']
+    search_fields = ['name', 'email', 'full_name']
 
     def get_permissions(self):
         if self.action == 'create':
@@ -32,19 +32,19 @@ class LoginView(generics.GenericAPIView):
         password = serializer.validated_data['password']
 
         try:
-            pengguna = Pengguna.objects.get(email=email)
-        except Pengguna.DoesNotExist:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if not pengguna.is_active:
+        if not user.is_active:
             return Response({"error": "Account is inactive"}, status=status.HTTP_403_FORBIDDEN)
 
-        if pengguna.check_password(password):
+        if user.check_password(password):
             return Response({
-                'token': str(pengguna.id_pengguna),
-                'id_pengguna': pengguna.id_pengguna,
-                'email': pengguna.email,
-                'nama_pengguna': pengguna.nama_pengguna
+                'token': str(user.id),
+                'id': user.id,
+                'email': user.email,
+                'name': user.name
             }, status=status.HTTP_200_OK)
         
         return Response({"error": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
