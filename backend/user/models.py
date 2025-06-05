@@ -5,6 +5,7 @@ import uuid
 
 class User(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    balance = models.PositiveIntegerField(default=0)
     name = models.CharField(max_length=100, unique=True)
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=128) # Stores the hashed password

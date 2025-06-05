@@ -19,12 +19,7 @@ class Produk(models.Model):
 class Transaksi(models.Model):
     id_transaksi  = models.AutoField(primary_key=True)
     # Option 1: Link to the Customer model defined above
-    customer = models.ForeignKey(
-                                User,
-                                on_delete=models.PROTECT,
-                                related_name='transaksi',
-                                default=get_default_customer_pk # <<< Add this if the field can be optional in forms/admin
-    )
+    customer = models.CharField(max_length=100, default=get_default_customer_pk) # <<< Add this if the field can be optional in forms/admin()
     
     produk = models.ForeignKey(Produk, 
                                on_delete=models.PROTECT, 
