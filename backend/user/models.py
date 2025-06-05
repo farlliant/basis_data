@@ -12,8 +12,7 @@ class User(models.Model):
     is_active = models.BooleanField(default=True) # Important for authentication
     last_login = models.DateTimeField(null=True, blank=True)
     date_joined = models.DateTimeField(default=timezone.now)
-
-
+    
     def __str__(self):
         return self.name
 
