@@ -9,21 +9,20 @@ class ProdukSerializer(serializers.ModelSerializer):
 
 class TransaksiSerializer(serializers.ModelSerializer):
     # customer field will now expect a User ID for input
-    # and can be configured to show more User details on output if needed.
     customer = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     produk = serializers.PrimaryKeyRelatedField(queryset=Produk.objects.all())
     
-    # Make total_harga read-only as it's calculated in the view
     total_harga = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     
-    # Include related model string representations for better readability in API responses
     customer_name = serializers.CharField(source='customer.name', read_only=True)
     produk_name = serializers.CharField(source='produk.nama_barang', read_only=True)
-
+    kode_barang = serializers.CharField(source='produk.kode_barang', read_only=True)
 
     class Meta:
         model = Transaksi
-        fields = ['id_transaksi', 'customer', 'customer_name', 'produk', 'produk_name', 'jumlah', 'total_harga', 'waktu_transaksi']
+        fields = ['id_transaksi', 'customer', 'customer_name', 
+                  'produk', 'produk_name', 'jumlah', 
+                  'total_harga', 'waktu_transaksi', 'kode_barang']
         read_only_fields = ['waktu_transaksi', 'total_harga']
 
 

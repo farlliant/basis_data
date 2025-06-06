@@ -1,8 +1,11 @@
+import datetime
 from rest_framework import viewsets, filters, generics, status
-from rest_framework.response import Response
+from rest_framework.response import Response, Serializer as serializers
 from django.db import transaction # Import transaction
 from django.utils import timezone
 from django.db.models import Sum
+
+from backend.user.models import User
 from .models import Produk, Transaksi
 from .serializers import ProdukSerializer, TransaksiSerializer
 
@@ -20,83 +23,97 @@ class ProdukRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
 
 # === VIEWSET UNTUK CRUD + SEARCH TRANSAKSI ===
 class TransaksiViewSet(viewsets.ModelViewSet):
-    queryset = Transaksi.objects.all().order_by('-waktu_transaksi') # Show newest first
+    queryset = Transaksi.objects.all().order_by('-waktu_transaksi')
     serializer_class = TransaksiSerializer
-    filter_backends = [filters.SearchFilter]
-    # Ensure related fields are accessible for search
-    search_fields = ['id_transaksi', 'produk__kode_barang', 'produk__nama_barang', 'customer__name', 'customer__email']
+    search_fields = ['id_transaksi', 'produk__nama_barang', 'customer__name']
 
     def perform_create(self, serializer):
         validated_data = serializer.validated_data
         produk = validated_data['produk']
-        customer = validated_data['customer'] # This is a User instance
+        customer = validated_data['customer']
         jumlah = validated_data['jumlah']
-
-        # Calculate total_harga
         total_harga = produk.harga_satuan * jumlah
 
         try:
             with transaction.atomic(): # Ensures atomicity
+                # Use select_for_update to lock rows and prevent race conditions
+                produk_locked = Produk.objects.select_for_update().get(pk=produk.pk)
+                customer_locked = User.objects.select_for_update().get(pk=customer.pk)
+
                 # 1. Check stock
-                if produk.stok < jumlah:
-                    raise serializer.ValidationError(f"Not enough stock for {produk.nama_barang}. Available: {produk.stok}")
+                if produk_locked.stok < jumlah:
+                    raise serializers.ValidationError(f"Not enough stock for {produk_locked.nama_barang}. Available: {produk_locked.stok}")
                 
                 # 2. Check customer balance
-                if customer.balance < total_harga:
-                    raise serializer.ValidationError(f"Not enough balance for customer {customer.name}. Required: {total_harga}, Available: {customer.balance}")
+                if customer_locked.balance < total_harga:
+                    raise serializers.ValidationError(f"Not enough balance for customer {customer_locked.name}. Required: {total_harga}, Available: {customer_locked.balance}")
 
                 # 3. Reduce product stock
-                produk.stok -= jumlah
-                produk.save()
+                produk_locked.stok -= jumlah
+                produk_locked.save()
 
                 # 4. Reduce customer balance
-                customer.balance -= total_harga
-                customer.save()
+                customer_locked.balance -= total_harga
+                customer_locked.save()
                 
                 # 5. Save the transaction with the calculated total_harga
                 serializer.save(total_harga=total_harga)
-
-        except serializer.ValidationError as e:
+                
+        except serializers.ValidationError as e:
             # Re-raise validation errors to be sent as 400 Bad Request
             raise e
         except Exception as e:
             # Handle other potential errors
-            raise serializer.ValidationError(str(e))
+            raise serializers.ValidationError(str(e))
 
-
-# === JIKA BUTUH VIEW BERBASIS GENERICS UNTUK DETAIL TRANSAKSI ===
 class TransaksiRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Transaksi.objects.all()
     serializer_class = TransaksiSerializer
 
-
-# === VIEW UNTUK SALES REPORT ===
 class SalesReportView(generics.GenericAPIView):
-    # permission_classes = [IsAuthenticated] # Uncomment if report requires login
 
     def get(self, request, *args, **kwargs):
-        total_pendapatan_data = Transaksi.objects.aggregate(total=Sum('total_harga'))
-        total_pendapatan = total_pendapatan_data['total'] if total_pendapatan_data['total'] else 0.00
+        # Correctly get the date string from query params
+        date_str = request.query_params.get('date', None)
 
-        today_min = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_max = timezone.now().replace(hour=23, minute=59, second=59, microsecond=999999)
-        penjualan_hari_ini_data = Transaksi.objects.filter(waktu_transaksi__range=(today_min, today_max)).aggregate(total=Sum('total_harga'))
-        penjualan_hari_ini = penjualan_hari_ini_data['total'] if penjualan_hari_ini_data['total'] else 0.00
+        if not date_str:
+            # Default to today if no date is provided
+            target_date = timezone.now().date()
+        else:
+            try:
+                # Correctly parse the date string into a date object
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Laba / Profit Percentage:
-        # To calculate profit, you need the cost of goods sold (COGS).
-        # If 'harga_satuan' is selling price, you need another field in 'Produk' for cost price.
-        # Example: laba_persentase = ((total_pendapatan - total_cogs) / total_cogs) * 100 if total_cogs > 0 else 0
-        # For now, we'll put a placeholder.
-        persentase_laba = "15.5%" # Placeholder, as per screenshot. Calculation requires cost price data.
+        # Count the number of transactions for the chosen day
+        transaksi_count_target_date = Transaksi.objects.filter(waktu_transaksi__date=target_date).count()
+        
+        # Calculate sales for the chosen day
+        penjualan_target_date_data = Transaksi.objects.filter(waktu_transaksi__date=target_date).aggregate(total=Sum('total_harga'))
+        penjualan_target_date = penjualan_target_date_data['total'] or 0
 
-        transaksi_terkini = Transaksi.objects.order_by('-waktu_transaksi')[:5] # Get last 5 transactions
-        transaksi_terkini_serializer = TransaksiSerializer(transaksi_terkini, many=True)
+        # Calculate sales for the yesterday of chosen day
+        penjualan_yesterday_target_date_data = Transaksi.objects.filter(waktu_transaksi__date=target_date - datetime.timedelta(days=1)).aggregate(total=Sum('total_harga'))
+        penjualan_yesterday_target_date = penjualan_yesterday_target_date_data['total'] or 0 
+
+        # Note: Accurate profit calculation requires a 'cost_price' field on the Produk model.
+        modal_target_date = Transaksi.objects.filter(waktu_transaksi__date=target_date).aggregate(total=Sum('produk__harga_satuan * jumlah'))
+        persentase_laba_target_date = penjualan_target_date / modal_target_date['total'] * 100 / 100.0 # Placeholder, as per screenshot. Calculation requires cost price data.
+
+        # Calculates the difference between today and yesterday's sales
+        persentase_penjualan_target_date = (penjualan_target_date - penjualan_yesterday_target_date) / penjualan_yesterday_target_date * 100
+
+        # Correctly filter transactions for the chosen day
+        transaksi_target_date = Transaksi.objects.filter(waktu_transaksi__date=target_date).order_by('-waktu_transaksi')
+        transaksi_serializer = TransaksiSerializer(transaksi_target_date, many=True)
 
         report_data = {
-            "total_pendapatan": f"Rp {total_pendapatan:,.0f}".replace(",", "."), # Formatted as in screenshot
-            "penjualan_hari_ini": f"Rp {penjualan_hari_ini:,.0f}".replace(",", "."), # Formatted
-            "persentase_laba": persentase_laba,
-            "transaksi_terkini": transaksi_terkini_serializer.data
+            "tanggal_laporan": target_date.strftime('%Y-%m-%d'),
+            "penjualan_target_date": f"Rp {penjualan_target_date:,.0f}".replace(",", "."),
+            "persentase_laba_target_date": persentase_laba_target_date,
+            "transaksi_target_date": transaksi_serializer.data,
+            "transaksi_count_target_date": transaksi_count_target_date,
+            "persentase_penjualan_target_date": persentase_penjualan_target_date
         }
         return Response(report_data, status=status.HTTP_200_OK)
