@@ -40,34 +40,55 @@ class TransaksiViewSet(viewsets.ModelViewSet):
     queryset = Transaksi.objects.all().order_by('-waktu_transaksi')
     serializer_class = TransaksiSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        produk = serializer.validated_data['produk']
-        jumlah = serializer.validated_data['jumlah']
-        
-        # Hitung total harga
-        total_harga = produk.harga * jumlah
-        
-        # Periksa stok
-        if produk.stok < jumlah:
-            return Response(
-                {"error": f"Stok untuk {produk.nama_barang} tidak cukup. Tersedia: {produk.stok}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        is_many = isinstance(request.data, list)
+        if not is_many:
+            # --- Proses untuk satu transaksi ---
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
             
-        # Update stok produk
-        produk.stok -= jumlah
-        produk.save()
+            produk = serializer.validated_data['produk']
+            jumlah = serializer.validated_data['jumlah']
+            
+            #total_harga = produk.harga_satuan * jumlah
+            
+            if produk.stok < jumlah:
+                return Response(
+                    {"error": f"Stok untuk {produk.nama_barang} tidak cukup."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            produk.stok -= jumlah
+            produk.save()
+            
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        else:
+            # --- Proses untuk banyak transaksi (bulk) ---
+            serializer = self.get_serializer(data=request.data, many=True)
+            serializer.is_valid(raise_exception=True)
+            
+            # Loop untuk validasi dan update stok
+            for data in serializer.validated_data:
+                produk = data['produk']
+                jumlah = data['jumlah']
+                
+                if produk.stok < jumlah:
+                    raise serializers.ValidationError(
+                        f"Stok untuk {produk.nama_barang} tidak cukup."
+                    )
+                
+                produk.stok -= jumlah
+                produk.save()
 
-        # Simpan transaksi
-        serializer.save(total_harga=total_harga)
-        
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+            # Simpan semua transaksi
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class SalesReportView(generics.ListAPIView):
@@ -78,3 +99,4 @@ class SalesReportView(generics.ListAPIView):
     serializer_class = TransaksiSerializer
     queryset = Transaksi.objects.all().order_by('-waktu_transaksi')
     permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.AllowAny]
