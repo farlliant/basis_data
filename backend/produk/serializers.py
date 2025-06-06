@@ -23,7 +23,7 @@ class TransaksiSerializer(serializers.ModelSerializer):
         fields = ['id_transaksi', 'customer', 'customer_name', 
                   'produk', 'produk_name', 'jumlah', 
                   'total_harga', 'waktu_transaksi', 'kode_barang']
-        read_only_fields = ['waktu_transaksi', 'total_harga']
+        read_only_fields = ['total_harga']
 
 
     def validate(self, data):

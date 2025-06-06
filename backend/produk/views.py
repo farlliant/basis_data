@@ -4,9 +4,8 @@ from rest_framework.response import Response, Serializer as serializers
 from django.db import transaction # Import transaction
 from django.utils import timezone
 from django.db.models import Sum
-
-from backend.user.models import User
 from .models import Produk, Transaksi
+from user.models import User
 from .serializers import ProdukSerializer, TransaksiSerializer
 
 # === VIEWSET UNTUK CRUD + SEARCH PRODUK ===
