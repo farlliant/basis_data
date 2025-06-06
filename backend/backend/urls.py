@@ -13,11 +13,11 @@ from drf_yasg import openapi
 # --- Konfigurasi untuk halaman dokumentasi ---
 schema_view = get_schema_view(
    openapi.Info(
-      title="API Toko Sederhana",
+      title="API Laris Amanah",
       default_version='v1',
-      description="Dokumentasi API untuk proyek Toko Sederhana.",
-      contact=openapi.Contact(email="kontak@proyek.com"),
-      license=openapi.License(name="BSD License"),
+      description="Dokumentasi API.",
+      contact=openapi.Contact(email="larisamanah@basisdata.com"),
+      license=openapi.License(name="bapakkuprogrammer"),
    ),
    public=True,
    permission_classes=(permissions.AllowAny,),
