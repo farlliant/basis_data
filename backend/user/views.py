@@ -16,8 +16,18 @@ class userViewSet(viewsets.ModelViewSet):
         if self.action == 'create':
             self.permission_classes = [AllowAny,]
         else:
-            self.permission_classes = [IsAuthenticated,] 
+            self.permission_classes = [AllowAny,] 
         return super().get_permissions()
+    
+    def get_serializer(self, *args, **kwargs):
+        """
+        Customizes the serializer to handle bulk creation (many=True)
+        if the request data for a 'create' action is a list.
+        """
+        # Check if the action is 'create' (POST request) and the data is a list
+        if self.action == 'create' and isinstance(self.request.data, list):
+            kwargs['many'] = True # Set many=True for bulk serialization
+        return super().get_serializer(*args, **kwargs)
 
 
 class LoginView(generics.GenericAPIView):
@@ -51,7 +61,7 @@ class LoginView(generics.GenericAPIView):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def logout_view(request):
     try:
         # Get the token from the request (DRF's TokenAuthentication adds it to request.auth)

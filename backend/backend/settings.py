@@ -36,6 +36,8 @@ INSTALLED_APPS = [
     # Your apps
     'produk',
     'user',
+    # Documentation
+    'drf_yasg',
 ]
 
 # === MIDDLEWARE ===

@@ -25,7 +25,7 @@ class Transaksi(models.Model):
                                on_delete=models.PROTECT, 
                                related_name='transaksi',
     )
-    jumlah = models.PositiveIntegerField() # Quantity of the product purchased
+    jumlah = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True) # Quantity of the product purchased
     total_harga = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True) # Corresponds to 'Total Belanja (Rp)'
     waktu_transaksi = models.DateTimeField(null=True, blank=True) # Timestamp of the transaction
     created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
