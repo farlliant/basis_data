@@ -1,11 +1,12 @@
 import datetime
 from rest_framework import viewsets, filters, generics, status
-from rest_framework.response import Response, Serializer as serializers
-from django.db import transaction # Import transaction
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from rest_framework import serializers
+from django.db import transaction
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from .models import Produk, Transaksi
-from user.models import User
 from .serializers import ProdukSerializer, TransaksiSerializer
 
 # === VIEWSET UNTUK CRUD + SEARCH PRODUK ===
@@ -24,46 +25,70 @@ class ProdukRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
 class TransaksiViewSet(viewsets.ModelViewSet):
     queryset = Transaksi.objects.all().order_by('-waktu_transaksi')
     serializer_class = TransaksiSerializer
-    search_fields = ['id_transaksi', 'produk__nama_barang', 'customer__name']
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['id_transaksi', 'produk__nama_barang', 'customer']
+
+    def get_serializer(self, *args, **kwargs):
+        if self.action == 'create' and isinstance(self.request.data, list):
+            kwargs['many'] = True
+        return super().get_serializer(*args, **kwargs)
 
     def perform_create(self, serializer):
-        validated_data = serializer.validated_data
-        produk = validated_data['produk']
-        customer = validated_data['customer']
-        jumlah = validated_data['jumlah']
-        total_harga = produk.harga_satuan * jumlah
+        # For a single transaction request
+        if not serializer.many:
+            validated_data = serializer.validated_data
+            produk = validated_data['produk']
+            jumlah = validated_data['jumlah']
+            
+            # Calculate the total price for the transaction.
+            total_harga = produk.harga_satuan * jumlah
 
-        try:
-            with transaction.atomic(): # Ensures atomicity
-                # Use select_for_update to lock rows and prevent race conditions
-                produk_locked = Produk.objects.select_for_update().get(pk=produk.pk)
-                customer_locked = User.objects.select_for_update().get(pk=customer.pk)
+            try:
+                # Use a database transaction to ensure data integrity.
+                with transaction.atomic():
+                    # Lock the product row to prevent race conditions during stock update.
+                    produk_locked = Produk.objects.select_for_update().get(pk=produk.pk)
+                    
+                    if float(produk_locked.stok) < float(jumlah):
+                        raise serializers.ValidationError(f"Stok tidak cukup untuk {produk_locked.nama_barang}. Tersedia: {produk_locked.stok}")
+                    
+                    produk_locked.stok = F('stok') - jumlah
+                    produk_locked.save()
+                    
+                    # Save the transaction with the calculated total price.
+                    serializer.save(total_harga=total_harga)
+            except Exception as e:
+                raise serializers.ValidationError(str(e))
+        else:
+            # For a bulk transaction request (list of transactions)
+            instances = []
+            try:
+                with transaction.atomic():
+                    for item_data in serializer.validated_data:
+                        produk = item_data['produk']
+                        jumlah = item_data['jumlah']
+                        customer_name = item_data['customer']
+                        
+                        total_harga = produk.harga_satuan * jumlah
+                        
+                        produk_locked = Produk.objects.select_for_update().get(pk=produk.pk)
+                        
+                        if float(produk_locked.stok) < float(jumlah):
+                            raise serializers.ValidationError(f"Stok tidak cukup untuk {produk_locked.nama_barang}. Tersedia: {produk_locked.stok} (for item {produk.nama_barang})")
+                        
+                        produk_locked.stok = F('stok') - jumlah
+                        produk_locked.save()
 
-                # 1. Check stock
-                if produk_locked.stok < jumlah:
-                    raise serializers.ValidationError(f"Not enough stock for {produk_locked.nama_barang}. Available: {produk_locked.stok}")
-                
-                # 2. Check customer balance
-                if customer_locked.balance < total_harga:
-                    raise serializers.ValidationError(f"Not enough balance for customer {customer_locked.name}. Required: {total_harga}, Available: {customer_locked.balance}")
-
-                # 3. Reduce product stock
-                produk_locked.stok -= jumlah
-                produk_locked.save()
-
-                # 4. Reduce customer balance
-                customer_locked.balance -= total_harga
-                customer_locked.save()
-                
-                # 5. Save the transaction with the calculated total_harga
-                serializer.save(total_harga=total_harga)
-                
-        except serializers.ValidationError as e:
-            # Re-raise validation errors to be sent as 400 Bad Request
-            raise e
-        except Exception as e:
-            # Handle other potential errors
-            raise serializers.ValidationError(str(e))
+                        instance = Transaksi.objects.create(
+                            produk=produk,
+                            customer=customer_name,
+                            jumlah=jumlah,
+                            waktu_transaksi=item_data.get('waktu_transaksi', timezone.now()),
+                            total_harga=total_harga
+                        )
+                        instances.append(instance)
+            except Exception as e:
+                raise serializers.ValidationError(f"Terjadi kesalahan saat memproses transaksi bulk: {str(e)}")
 
 class TransaksiRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Transaksi.objects.all()
@@ -116,3 +141,5 @@ class SalesReportView(generics.GenericAPIView):
             "persentase_penjualan_target_date": persentase_penjualan_target_date
         }
         return Response(report_data, status=status.HTTP_200_OK)
+    
+    
