@@ -113,25 +113,20 @@ class TransaksiViewSet(viewsets.ModelViewSet):
     queryset = Transaksi.objects.all().order_by('-waktu_transaksi')
     serializer_class = TransaksiSerializer
     filter_backends = [filters.SearchFilter]
-    # Corrected 'customer__name' to 'customer' to match the CharField in the Transaksi model
     search_fields = ['id_transaksi', 'produk__nama_barang', 'customer']
 
     def get_serializer(self, *args, **kwargs):
-        # This part for handling bulk requests is correct and remains unchanged.
         if self.action == 'create' and isinstance(self.request.data, list):
             kwargs['many'] = True
         return super().get_serializer(*args, **kwargs)
 
     def perform_create(self, serializer):
-        # With the updated serializer, `validated_data['customer']` will now be a string.
-
-        # For bulk transaction requests (a list of items)
-        if serializer.many:
+        if getattr(serializer, 'many', False):
+            # For bulk transaction requests (a list of items)
             instances = []
             with transaction.atomic():
                 for item_data in serializer.validated_data:
                     produk = item_data['produk']
-                    # This is now the customer's name as a string, as desired.
                     customer_name = item_data['customer']
                     jumlah = item_data['jumlah']
                     total_harga = produk.harga_satuan * jumlah
@@ -145,7 +140,6 @@ class TransaksiViewSet(viewsets.ModelViewSet):
                         produk_locked.stok = F('stok') - jumlah
                         produk_locked.save()
                         
-                        # Create the transaction instance with the customer's name string.
                         instance = Transaksi.objects.create(
                             produk=produk,
                             customer=customer_name,
@@ -157,11 +151,10 @@ class TransaksiViewSet(viewsets.ModelViewSet):
 
                     except Produk.DoesNotExist:
                         raise serializers.ValidationError(f"Produk dengan ID {produk.pk} tidak ditemukan.")
-                    except serializers.ValidationError as e:
-                        raise e
+                    except serializers.ValidationError:
+                        raise
                     except Exception as e:
                         raise serializers.ValidationError(f"Terjadi kesalahan saat memproses transaksi: {str(e)}")
-        
         # For a single transaction request
         else:
             validated_data = serializer.validated_data
@@ -179,7 +172,6 @@ class TransaksiViewSet(viewsets.ModelViewSet):
                     produk_locked.stok = F('stok') - jumlah
                     produk_locked.save()
                     
-                    # The serializer's save method will now work correctly.
                     serializer.save(total_harga=total_harga)
                     
             except serializers.ValidationError as e:
