@@ -15,7 +15,7 @@ class Produk(models.Model):
     nama_barang = models.CharField(max_length=100)
     stok = models.PositiveIntegerField(default=0)
     satuan = models.CharField(max_length=20)
-    harga_satuan = models.PositiveBigIntegerField(default=0) # Price per unit in the smallest currency unit (e.g., cents)
+    harga_satuan = models.DecimalField(max_digits=12, decimal_places=2)
 
 class Transaksi(models.Model):
     id_transaksi  = models.IntegerField(primary_key=True)
