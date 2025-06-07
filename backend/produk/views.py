@@ -157,8 +157,8 @@ class TransaksiViewSet(viewsets.ModelViewSet):
 
                     except Produk.DoesNotExist:
                         raise serializers.ValidationError(f"Produk dengan ID {produk.pk} tidak ditemukan.")
-                    except serializers.ValidationError:
-                        raise
+                    except serializers.ValidationError as e:
+                        raise e
                     except Exception as e:
                         raise serializers.ValidationError(f"Terjadi kesalahan saat memproses transaksi: {str(e)}")
         
