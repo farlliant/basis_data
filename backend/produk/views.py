@@ -6,6 +6,7 @@ from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+
 from .models import Produk, Transaksi
 from .serializers import ProdukSerializer, TransaksiSerializer
 
@@ -108,45 +109,46 @@ class TransaksiViewSet(viewsets.ModelViewSet):
             kwargs['many'] = True
         return super().get_serializer(*args, **kwargs)
 
+class TransaksiViewSet(viewsets.ModelViewSet):
+    queryset = Transaksi.objects.all().order_by('-waktu_transaksi')
+    serializer_class = TransaksiSerializer
+    filter_backends = [filters.SearchFilter]
+    # Corrected 'customer__name' to 'customer' to match the CharField in the Transaksi model
+    search_fields = ['id_transaksi', 'produk__nama_barang', 'customer']
+
+    def get_serializer(self, *args, **kwargs):
+        # This part for handling bulk requests is correct and remains unchanged.
+        if self.action == 'create' and isinstance(self.request.data, list):
+            kwargs['many'] = True
+        return super().get_serializer(*args, **kwargs)
+
     def perform_create(self, serializer):
-        # Jika ini adalah transaksi bulk (banyak item dalam list)
+        # With the updated serializer, `validated_data['customer']` will now be a string.
+
+        # For bulk transaction requests (a list of items)
         if serializer.many:
             instances = []
             with transaction.atomic():
                 for item_data in serializer.validated_data:
                     produk = item_data['produk']
-                    customer = item_data['customer']
+                    # This is now the customer's name as a string, as desired.
+                    customer_name = item_data['customer']
                     jumlah = item_data['jumlah']
-
-                    # Perhitungan total_harga tetap dilakukan
                     total_harga = produk.harga_satuan * jumlah
 
                     try:
-                        # Kunci produk untuk update stok, masih diperlukan
                         produk_locked = Produk.objects.select_for_update().get(pk=produk.pk)
                         
-                        # Cek stok tetap dilakukan karena kamu tetap ingin mengurangi stok fisik
                         if float(produk_locked.stok) < float(jumlah):
                             raise serializers.ValidationError(f"Stok tidak cukup untuk {produk_locked.nama_barang}. Tersedia: {produk_locked.stok}")
                         
-                        # Kurangi stok produk
                         produk_locked.stok = F('stok') - jumlah
                         produk_locked.save()
-                        produk_locked.refresh_from_db()
-
-                        # == BARIS INI DIHAPUS/DIKOMENTARI KARENA TIDAK PAKAI SALDO ==
-                        # if customer_locked and customer_locked.balance < total_harga:
-                        #     raise serializers.ValidationError(f"Not enough balance for customer {customer_locked.name}. Required: {total_harga}, Available: {customer_locked.balance}")
-                        # if customer_locked:
-                        #     customer_locked.balance = F('balance') - total_harga
-                        #     customer_locked.save()
-                        #     customer_locked.refresh_from_db()
-                        # ==============================================================
                         
-                        # Buat instance transaksi
+                        # Create the transaction instance with the customer's name string.
                         instance = Transaksi.objects.create(
                             produk=produk,
-                            customer=customer,
+                            customer=customer_name,
                             jumlah=jumlah,
                             waktu_transaksi=item_data.get('waktu_transaksi', timezone.now()),
                             total_harga=total_harga
@@ -154,57 +156,47 @@ class TransaksiViewSet(viewsets.ModelViewSet):
                         instances.append(instance)
 
                     except Produk.DoesNotExist:
-                        raise serializers.ValidationError(f"Produk dengan ID {produk.pk} tidak ditemukan untuk transaksi.")
-                    except User.DoesNotExist:
-                        # Jika customer adalah ForeignKey, pastikan ID customer valid.
-                        # Error ini bisa terjadi jika UUID customer di payload tidak ada di database.
-                        raise serializers.ValidationError(f"Pelanggan dengan ID {customer} tidak ditemukan untuk transaksi.")
+                        raise serializers.ValidationError(f"Produk dengan ID {produk.pk} tidak ditemukan.")
                     except serializers.ValidationError:
-                        raise # Re-raise validation errors
+                        raise
                     except Exception as e:
                         raise serializers.ValidationError(f"Terjadi kesalahan saat memproses transaksi: {str(e)}")
-            return instances
+        
+        # For a single transaction request
         else:
-            # Logika untuk transaksi tunggal (bukan bulk)
             validated_data = serializer.validated_data
             produk = validated_data['produk']
-            customer = validated_data['customer']
             jumlah = validated_data['jumlah']
-            
             total_harga = produk.harga_satuan * jumlah
 
             try:
                 with transaction.atomic():
                     produk_locked = Produk.objects.select_for_update().get(pk=produk.pk)
                     
-                    # Cek stok produk
                     if float(produk_locked.stok) < float(jumlah):
                         raise serializers.ValidationError(f"Stok tidak cukup untuk {produk_locked.nama_barang}. Tersedia: {produk_locked.stok}")
                     
-                    # Kurangi stok produk
                     produk_locked.stok = F('stok') - jumlah
                     produk_locked.save()
-                    produk_locked.refresh_from_db()
-
-                    # == BARIS INI DIHAPUS/DIKOMENTARI KARENA TIDAK PAKAI SALDO ==
-                    # customer_locked = None
-                    # if isinstance(customer, User):
-                    #     customer_locked = User.objects.select_for_update().get(pk=customer.pk) 
-                    # if customer_locked and customer_locked.balance < total_harga:
-                    #     raise serializers.ValidationError(f"Not enough balance for customer {customer_locked.name}. Required: {total_harga}, Available: {customer_locked.balance}")
-                    # if customer_locked:
-                    #     customer_locked.balance = F('balance') - total_harga
-                    #     customer_locked.save()
-                    #     customer_locked.refresh_from_db()
-                    # ==============================================================
                     
-                    # Simpan transaksi dengan total_harga yang sudah dihitung
+                    # The serializer's save method will now work correctly.
                     serializer.save(total_harga=total_harga)
                     
             except serializers.ValidationError as e:
                 raise e
             except Exception as e:
                 raise serializers.ValidationError(str(e))
+
+    # No changes are needed for your existing bulk_update and bulk_delete methods.
+    @action(detail=False, methods=['patch'])
+    def bulk_update(self, request):
+        # ... (Your existing code here)
+        pass
+
+    @action(detail=False, methods=['delete'])
+    def bulk_delete(self, request):
+        # ... (Your existing code here)
+        pass
 
     @action(detail=False, methods=['patch'])
     def bulk_update(self, request):
@@ -283,7 +275,6 @@ class TransaksiRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIVie
     lookup_field = 'id_transaksi'
 
 class SalesReportView(generics.GenericAPIView):
-
     def get(self, request, *args, **kwargs):
         date_str = request.query_params.get('date', None)
 
