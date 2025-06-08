@@ -6,6 +6,7 @@ from rest_framework import serializers
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+from django.db.models.functions import TruncDay
 
 from .models import Produk, Transaksi
 from .serializers import ProdukSerializer, TransaksiSerializer
@@ -272,7 +273,6 @@ class SalesReportView(generics.GenericAPIView):
         year_str = request.query_params.get('year', None)
 
         if not month_str or not year_str:
-            # Default to current month and year if not provided
             target_date = timezone.now().date()
             target_month = target_date.month
             target_year = target_date.year
@@ -280,113 +280,73 @@ class SalesReportView(generics.GenericAPIView):
             try:
                 target_month = int(month_str)
                 target_year = int(year_str)
-                # Validate month and year
-                if not (1 <= target_month <= 12) or not (1900 <= target_year <= 2100): # Adjust year range as needed
-                    return Response({"error": "Invalid month or year. Month must be 1-12, Year must be valid."}, status=status.HTTP_400_BAD_REQUEST)
-                
-                target_date = datetime.date(target_year, target_month, 1) # Set to the first day of the target month
+                if not (1 <= target_month <= 12 and 1900 <= target_year <= 2100):
+                    return Response({"error": "Invalid month or year."}, status=status.HTTP_400_BAD_REQUEST)
+                target_date = datetime.date(target_year, target_month, 1)
             except ValueError:
-                return Response({"error": "Invalid month or year format. Use numbers for month and year."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid month or year format."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Calculate the start and end dates for the target month
+        # Menghitung tanggal awal dan akhir untuk bulan target
         start_of_month = datetime.date(target_year, target_month, 1)
-        # Get the last day of the month
         if target_month == 12:
             end_of_month = datetime.date(target_year + 1, 1, 1) - datetime.timedelta(days=1)
         else:
             end_of_month = datetime.date(target_year, target_month + 1, 1) - datetime.timedelta(days=1)
 
-        # Calculate the start and end dates for the previous month
-        first_day_prev_month = start_of_month - datetime.timedelta(days=1)
-        prev_month = first_day_prev_month.month
-        prev_year = first_day_prev_month.year
-        start_of_prev_month = datetime.date(prev_year, prev_month, 1)
-        end_of_prev_month = start_of_month - datetime.timedelta(days=1)
+        # --- Filter Transaksi untuk Bulan Target ---
+        transaksi_bulan_ini = Transaksi.objects.filter(
+            waktu_transaksi__date__gte=start_of_month,
+            waktu_transaksi__date__lte=end_of_month
+        )
 
-        # --- Data for the target month ---
-        transaksi_count_target_month = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_month,
-            waktu_transaksi__date__lte=end_of_month
-        ).count()
-        
-        penjualan_target_month_data = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_month,
-            waktu_transaksi__date__lte=end_of_month
-        ).aggregate(total=Sum('total_harga'))
+        # --- Data Penjualan (Revenue) ---
+        penjualan_target_month_data = transaksi_bulan_ini.aggregate(total=Sum('total_harga'))
         penjualan_target_month = penjualan_target_month_data['total'] or 0
 
-        modal_transactions_target_month = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_month,
-            waktu_transaksi__date__lte=end_of_month
-        ).annotate(
-            item_modal=ExpressionWrapper(
-                F('produk__harga_satuan') * F('jumlah'), 
-                output_field=DecimalField()
-            )
-        )
-        modal_target_month_sum = modal_transactions_target_month.aggregate(total=Sum('item_modal'))['total'] or 0
+        # --- LAPORAN BARU: Jumlah Produk Terjual (Kuantitas) ---
 
-        # --- Data for the previous month (for comparison) ---
-        penjualan_prev_month_data = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_prev_month,
-            waktu_transaksi__date__lte=end_of_prev_month
-        ).aggregate(total=Sum('total_harga'))
-        penjualan_prev_month = penjualan_prev_month_data['total'] or 0 
+        # 1. Laporan Harian (dalam bulan target)
+        produk_terjual_harian = transaksi_bulan_ini.annotate(
+            tanggal=TruncDay('waktu_transaksi')
+        ).values('tanggal').annotate(
+            total_produk_terjual=Sum('jumlah')
+        ).order_by('tanggal')
 
-        # --- Data for the target year (annual sales) ---
-        start_of_target_year = datetime.date(target_year, 1, 1)
-        end_of_target_year = datetime.date(target_year, 12, 31)
-        penjualan_target_year_data = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_target_year,
-            waktu_transaksi__date__lte=end_of_target_year
-        ).aggregate(total=Sum('total_harga'))
-        penjualan_target_year = penjualan_target_year_data['total'] or 0
+        laporan_harian = [
+            {
+                "tanggal": item['tanggal'].strftime('%Y-%m-%d'),
+                "total_produk_terjual": item['total_produk_terjual']
+            }
+            for item in produk_terjual_harian
+        ]
 
-        # --- Data for the previous year (for comparison) ---
-        prev_year_for_annual = target_year - 1
-        start_of_prev_year_annual = datetime.date(prev_year_for_annual, 1, 1)
-        end_of_prev_year_annual = datetime.date(prev_year_for_annual, 12, 31)
-        penjualan_prev_year_annual_data = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_prev_year_annual,
-            waktu_transaksi__date__lte=end_of_prev_year_annual
-        ).aggregate(total=Sum('total_harga'))
-        penjualan_prev_year_annual = penjualan_prev_year_annual_data['total'] or 0
+        # 2. Laporan Bulanan
+        produk_terjual_bulanan_data = transaksi_bulan_ini.aggregate(total=Sum('jumlah'))
+        produk_terjual_bulanan = produk_terjual_bulanan_data['total'] or 0
 
-
-        # --- Calculations ---
-        persentase_laba_target_month = 0
-        if modal_target_month_sum > 0:
-            persentase_laba_target_month = ((penjualan_target_month - modal_target_month_sum) / modal_target_month_sum) * 100
+        # 3. Laporan Tahunan
+        start_of_year = datetime.date(target_year, 1, 1)
+        end_of_year = datetime.date(target_year, 12, 31)
+        produk_terjual_tahunan_data = Transaksi.objects.filter(
+            waktu_transaksi__date__gte=start_of_year,
+            waktu_transaksi__date__lte=end_of_year
+        ).aggregate(total=Sum('jumlah'))
+        produk_terjual_tahunan = produk_terjual_tahunan_data['total'] or 0
         
-        persentase_penjualan_target_month = 0
-        if penjualan_prev_month > 0:
-            persentase_penjualan_target_month = ((penjualan_target_month - penjualan_prev_month) / penjualan_prev_month) * 100
-        elif penjualan_target_month > 0:
-            persentase_penjualan_target_month = 100.0 # If previous month had no sales, but current does, it's 100% growth
-
-        # Calculate percentage change for annual sales
-        persentase_penjualan_dibanding_tahun_lalu = 0
-        if penjualan_prev_year_annual > 0:
-            persentase_penjualan_dibanding_tahun_lalu = ((penjualan_target_year - penjualan_prev_year_annual) / penjualan_prev_year_annual) * 100
-        elif penjualan_target_year > 0:
-            persentase_penjualan_dibanding_tahun_lalu = 100.0 # If previous year had no sales, but current does, it's 100% growth
-
-
-        transaksi_target_month = Transaksi.objects.filter(
-            waktu_transaksi__date__gte=start_of_month,
-            waktu_transaksi__date__lte=end_of_month
-        ).order_by('-waktu_transaksi')
-        transaksi_serializer = TransaksiSerializer(transaksi_target_month, many=True)
+        # --- Menyusun Laporan ---
+        transaksi_serializer = TransaksiSerializer(transaksi_bulan_ini.order_by('-waktu_transaksi'), many=True)
 
         report_data = {
             "bulan_laporan": target_date.strftime('%Y-%m'),
-            "penjualan_bulan_ini": f"Rp {penjualan_target_month:,.0f}".replace(",", "."),
-            "persentase_laba_bulan_ini": f"{persentase_laba_target_month:.2f}%",
-            "transaksi_bulan_ini": transaksi_serializer.data,
-            "jumlah_transaksi_bulan_ini": transaksi_count_target_month,
-            "persentase_penjualan_dibanding_bulan_lalu": f"{persentase_penjualan_target_month:.2f}%",
-            # New additions
-            "penjualan_tahun_ini": f"Rp {penjualan_target_year:,.0f}".replace(",", "."),
-            "persentase_penjualan_dibanding_tahun_lalu": f"{persentase_penjualan_dibanding_tahun_lalu:.2f}%"
+            "penjualan_bulan_ini_revenue": f"Rp {penjualan_target_month:,.0f}".replace(",", "."),
+            "jumlah_transaksi_bulan_ini": transaksi_bulan_ini.count(),
+            
+            # Laporan Kuantitas Produk Terjual
+            "produk_terjual_bulan_ini": produk_terjual_bulanan,
+            "produk_terjual_tahun_ini": produk_terjual_tahunan,
+            "laporan_produk_terjual_harian": laporan_harian,
+
+            # Detail transaksi bulan ini
+            "detail_transaksi_bulan_ini": transaksi_serializer.data,
         }
         return Response(report_data, status=status.HTTP_200_OK)

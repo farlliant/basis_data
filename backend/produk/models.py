@@ -19,20 +19,13 @@ class Produk(models.Model):
 
 class Transaksi(models.Model):
     id_transaksi  = models.IntegerField(primary_key=True)
-    # Option 1: Link to the Customer model defined above
     customer = models.CharField(max_length=100, blank=True, null=True)
-    produk = models.ForeignKey(Produk, 
-                               on_delete=models.PROTECT, 
-                               related_name='transaksi',
-    )
-    jumlah = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True) # Quantity of the product purchased
-    total_harga = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True) # Corresponds to 'Total Belanja (Rp)'
-    waktu_transaksi = models.DateTimeField(null=True, blank=True) # Timestamp of the transaction
+    produk = models.ForeignKey(Produk, on_delete=models.PROTECT, related_name='transaksi',)
+    jumlah = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    total_harga = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True) 
+    waktu_transaksi = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
 
     def __str__(self):
-        # Determine if customer or user is used
         user_name = self.user.get_full_name() or self.user.username if hasattr(self, 'customer') and self.customer else "N/A"
-        # If using Option 2 (user):
-        # customer_name = self.user.get_full_name() or self.user.username if hasattr(self, 'user') and self.user else "N/A"
         return f"Transaksi {self.id} by {user_name} for {self.produk.nama_barang}"
